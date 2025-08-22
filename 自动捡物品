@@ -1,5 +1,5 @@
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ENSHIDALAO/baimingdan/refs/heads/main/捡物品"))()
-local TweenService = game:GetService("TweenService")
+loadstring([==[local TweenService = game:GetService("TweenService")
 local TextService = game:GetService("TextService")
 local Players = game:GetService("Players")
 
@@ -104,7 +104,6 @@ coroutine.wrap(function()
         wait(1) -- 每秒更新一次
     end
 end)()
-loadstring([==[
 -- 核心功能脚本 (无UI版本)
 local UserInputService = game:GetService("UserInputService")
 local TeleportService = game:GetService("TeleportService")
