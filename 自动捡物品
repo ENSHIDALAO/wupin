@@ -1,0 +1,278 @@
+loadstring([==[local TweenService = game:GetService("TweenService")
+local TextService = game:GetService("TextService")
+local Players = game:GetService("Players")
+
+-- 创建UI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "BenHubUI"
+screenGui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- 创建主框架
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 450, 0, 120)
+mainFrame.Position = UDim2.new(0.5, 0, 0.2, 0) -- 向下移动了10% (从0.1改为0.2)
+mainFrame.AnchorPoint = Vector2.new(0.5, 0)
+mainFrame.BackgroundTransparency = 1
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+
+-- 创建时间显示标签 (顶部)
+local timeLabel = Instance.new("TextLabel")
+timeLabel.Name = "TimeLabel"
+timeLabel.Size = UDim2.new(1, 0, 0, 30)
+timeLabel.Position = UDim2.new(0, 0, 0, 0)
+timeLabel.BackgroundTransparency = 1
+timeLabel.Text = "北京时间: 加载中..."
+timeLabel.Font = Enum.Font.GothamBold
+timeLabel.TextSize = 20
+timeLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+timeLabel.TextStrokeTransparency = 0.8
+timeLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+timeLabel.Parent = mainFrame
+
+-- 创建欢迎文本标签 (底部)
+local textLabel = Instance.new("TextLabel")
+textLabel.Name = "WelcomeText"
+textLabel.Size = UDim2.new(1, 0, 0, 90)
+textLabel.Position = UDim2.new(0, 0, 0, 30)
+textLabel.BackgroundTransparency = 1
+textLabel.Text = "欢迎使用BEN HUB\n自动捡物品已开启\n1秒后换服"
+textLabel.Font = Enum.Font.GothamBold
+textLabel.TextSize = 24
+textLabel.TextStrokeTransparency = 0.7
+textLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+textLabel.RichText = true
+textLabel.TextYAlignment = Enum.TextYAlignment.Center
+textLabel.Parent = mainFrame
+
+-- 更新时间函数
+local function updateBeijingTime()
+    local localTime = os.time()
+    -- 北京时间是UTC+8
+    local beijingTimeOffset = 8 * 3600
+    local beijingTime = localTime + beijingTimeOffset
+    
+    -- 格式化时间
+    local timeTable = os.date("!*t", beijingTime)
+    local formattedTime = string.format("北京时间: %04d年%02d月%02d日 %02d:%02d:%02d", 
+        timeTable.year, timeTable.month, timeTable.day, 
+        timeTable.hour, timeTable.min, timeTable.sec)
+    
+    timeLabel.Text = formattedTime
+end
+
+-- 颜色渐变效果
+local colors = {
+    Color3.fromRGB(255, 50, 50),      -- 红色
+    Color3.fromRGB(255, 165, 0),      -- 橙色
+    Color3.fromRGB(255, 255, 100),    -- 黄色
+    Color3.fromRGB(100, 255, 100),    -- 绿色
+    Color3.fromRGB(100, 200, 255),    -- 蓝色
+    Color3.fromRGB(180, 100, 255),    -- 紫色
+    Color3.fromRGB(255, 100, 255)     -- 粉色
+}
+
+local colorIndex = 1
+local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+
+-- 颜色渐变循环
+coroutine.wrap(function()
+    while true do
+        local nextIndex = colorIndex % #colors + 1
+        
+        -- 文本颜色渐变
+        local textTween = TweenService:Create(
+            textLabel,
+            tweenInfo,
+            {TextColor3 = colors[nextIndex]}
+        )
+        textTween:Play()
+        
+        -- 等待渐变完成
+        textTween.Completed:Wait()
+        colorIndex = nextIndex
+    end
+end)()
+
+-- 更新时间循环
+coroutine.wrap(function()
+    while screenGui.Parent do
+        updateBeijingTime()
+        wait(1) -- 每秒更新一次
+    end
+end)()
+-- 核心功能脚本 (无UI版本)
+local UserInputService = game:GetService("UserInputService")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+
+-- 初始化变量
+local player = game:GetService("Players").LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local HumanoidRootPart = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
+local forbiddenZoneCenter = Vector3.new(352.884155, 13.0287256, -1353.05396)
+local forbiddenRadius = 80
+local currentJobId = game.JobId
+
+-- 初始位置设置
+
+
+-- 目标物品列表
+local targetItems = { 
+    "Money Printer",
+    "Blue Candy Cane",
+    "Bunny Balloon",
+    "Ghost Balloon",
+    "Clover Balloon",
+    "Bat Balloon",
+    "Gold Clover Balloon",
+    "Golden Rose",
+    "Black Rose",
+    "Heart Balloon",
+    "NextBot Nade",
+    "Nuke Launcher",
+    "Suitcase Nuke",
+    "Helicopter",
+    "Car",
+    "Dafy Money Printor",
+}
+
+-- 自动按E功能
+local function autoPressE()
+    while true do
+        game:GetService("VirtualInputManager"):SendKeyEvent(true, "E", false, game)
+        wait(0.01)
+        game:GetService("VirtualInputManager"):SendKeyEvent(false, "E", false, game)
+        wait(0.01)
+    end
+end
+
+-- 自动移动功能
+local function autoMove()
+    while true do
+        if character and HumanoidRootPart and humanoid.Health > 0 then
+            humanoid:Move(Vector3.new(1, 0, 0))
+        end
+        task.wait()
+    end
+end
+
+-- 服务器跳转功能
+local function TPServer()
+    local servers = HttpService:JSONDecode(game:HttpGet(
+        "https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?limit=100"))
+    
+    local availableServers = {}
+    for _, server in ipairs(servers.data) do
+        if server.playing < server.maxPlayers and server.id ~= currentJobId then
+            table.insert(availableServers, server.id)
+        end
+    end
+    
+    if #availableServers > 0 then
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, availableServers[math.random(1, #availableServers)])
+    else
+        task.wait(0.001)
+        TPServer()
+    end
+end
+
+-- 物品检测功能 (优化版)
+local function FindTargetItems()
+    local foundItems = {}
+    local startTime = os.clock()
+    
+    for _, itemFolder in pairs(game:GetService("Workspace").Game.Entities.ItemPickup:GetChildren()) do
+        for _, item in pairs(itemFolder:GetChildren()) do
+            if (item:IsA("MeshPart") or item:IsA("Part")) and os.clock() - startTime < 0.5 then
+                local itemPos = item.Position
+                local distance = (itemPos - forbiddenZoneCenter).Magnitude
+                
+                if distance > forbiddenRadius then
+                    local prompt = item:FindFirstChildOfClass("ProximityPrompt")
+                    if prompt and table.find(targetItems, prompt.ObjectText) then
+                        table.insert(foundItems, {
+                            item = item,
+                            prompt = prompt,
+                            distance = (itemPos - HumanoidRootPart.Position).Magnitude
+                        })
+                    end
+                end
+            end
+        end
+    end
+    
+    -- 按距离排序
+    table.sort(foundItems, function(a, b)
+        return a.distance < b.distance
+    end)
+    
+    return foundItems
+end
+
+-- 物品收集功能
+local function PickItem(item, prompt)
+    local startTime = tick()
+    local timeout = 15
+    local itemCollected = false
+    
+    prompt.RequiresLineOfSight = false
+    prompt.HoldDuration = 0
+    
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        if not item or not item.Parent then
+            itemCollected = true
+            connection:Disconnect()
+            return
+        end
+        
+        if tick() - startTime >= timeout then
+            connection:Disconnect()
+            return
+        end
+        
+        HumanoidRootPart.CFrame = item.CFrame * CFrame.new(0, 2, 0)
+        fireproximityprompt(prompt)
+    end)
+    
+    repeat 
+        task.wait(0.1) 
+    until itemCollected or not item or not item.Parent or tick() - startTime >= timeout
+    
+    if connection then
+        connection:Disconnect()
+    end
+    
+    return itemCollected
+end
+
+-- 启动核心功能
+coroutine.wrap(autoPressE)()
+coroutine.wrap(autoMove)()
+
+-- 主循环
+while true do
+    character = player.Character or player.CharacterAdded:Wait()
+    HumanoidRootPart = character:WaitForChild("HumanoidRootPart")
+    humanoid = character:WaitForChild("Humanoid")
+    
+    local items = FindTargetItems()
+    if #items > 0 then
+        for _, itemData in ipairs(items) do
+            if PickItem(itemData.item, itemData.prompt) then
+                break
+            end
+        end
+    else
+        task.wait(0.1)
+        TPServer()
+    end
+    
+    task.wait()
+end
+]==])()
