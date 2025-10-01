@@ -1,4 +1,3 @@
--- 初始按键（保持原样）
 game:GetService("VirtualInputManager"):SendKeyEvent(true, "W", false, game)
 task.wait(0.01)
 game:GetService("VirtualInputManager"):SendKeyEvent(false, "W", false, game)
@@ -19,13 +18,38 @@ local StarterGui = game:GetService("StarterGui")
 -- 获取本地玩家
 local LocalPlayer = Players.LocalPlayer
 
--- 全局变量控制脚本执行
+-- ========================
+-- 脚本控制变量
+-- ========================
 local scriptEnabled = false
-local activeCoroutines = {}
-local forceServerSwitchScheduled = false
+local scriptStartTime = 0
+local forceServerSwitchTime = huangfu -- 2.5秒后强制换服
+local allCoroutines = {} -- 存储所有协程
+local allConnections = {} -- 存储所有连接
 
--- 自定义换服时间设置
-local huanfu = 3 -- 换服时间设置（秒）
+-- 停止所有正在执行的脚本功能
+local function stopAllScripts()
+    print("🛑 正在停止所有脚本功能...")
+    
+    -- 停止所有协程
+    for _, coro in ipairs(allCoroutines) do
+        if coroutine.status(coro) ~= "dead" then
+            coroutine.close(coro)
+        end
+    end
+    allCoroutines = {}
+    
+    -- 断开所有连接
+    for _, connection in ipairs(allConnections) do
+        if connection.Connected then
+            connection:Disconnect()
+        end
+    end
+    allConnections = {}
+    
+    -- 重置控制变量
+    scriptEnabled = false
+end
 
 -- 检查必要的模块是否存在
 local devv, Signal, itemModule
@@ -41,69 +65,6 @@ if not success then
 end
 
 -- ========================
--- 协程管理功能
--- ========================
-local function trackCoroutine(coroutineFunc, name)
-    local co = coroutine.create(coroutineFunc)
-    activeCoroutines[name] = co
-    return co
-end
-
-local function stopAllCoroutines()
-    print("🛑 正在停止所有协程...")
-    for name, co in pairs(activeCoroutines) do
-        if coroutine.status(co) ~= "dead" then
-            coroutine.close(co)
-            print("✅ 已停止协程: " .. name)
-        end
-    end
-    activeCoroutines = {}
-end
-
--- ========================
--- 人物加载检测和强制换服功能
--- ========================
-local function waitForCharacterLoad()
-    print("⏳ 等待人物加载...")
-    
-    -- 等待角色存在
-    while not LocalPlayer.Character do
-        LocalPlayer.CharacterAdded:Wait()
-    end
-    
-    -- 等待角色组件加载完成
-    local character = LocalPlayer.Character
-    character:WaitForChild("Humanoid")
-    character:WaitForChild("HumanoidRootPart")
-    
-    print("✅ 人物加载完成")
-    return character
-end
-
-local function scheduleForceServerSwitch()
-    if forceServerSwitchScheduled then
-        return
-    end
-    
-    forceServerSwitchScheduled = true
-    print("⏰ 已安排" .. huanfu .. "秒后强制更换服务器")
-    
-    trackCoroutine(function()
-        task.wait(huanfu)
-        
-        if scriptEnabled then
-            print("🚀 执行强制服务器更换...")
-            
-            -- 停止所有正在执行的协程
-            stopAllCoroutines()
-            
-            -- 执行服务器跳转
-            TPServer()
-        end
-    end, "force_switch_timer")
-end
-
--- ========================
 -- 自动W键循环功能
 -- ========================
 local autoWEnabled = true
@@ -111,6 +72,9 @@ local wKeyInterval = 0.01 -- W键按下的间隔时间（秒）
 
 -- 自动W键循环函数
 local function autoWKeyLoop()
+    local coro = coroutine.running()
+    table.insert(allCoroutines, coro)
+    
     while scriptEnabled and autoWEnabled and task.wait(wKeyInterval) do
         if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") and LocalPlayer.Character.Humanoid.Health > 0 then
             -- 按下W键
@@ -131,7 +95,6 @@ local visitedServersFile = basePath .. "/visited_servers.txt"
 local executionCountFile = basePath .. "/execution_count.txt"
 local moneyPrinterCountFile = basePath .. "/money_printer_count.txt"
 local blacklistFile = basePath .. "/blacklist_enabled.txt"
-local huanfuTimeFile = basePath .. "/huanfu_time.txt" -- 新增：换服时间配置文件
 
 -- 检查文件系统功能是否可用
 local fileSystemAvailable = pcall(function()
@@ -146,30 +109,6 @@ local function ensureDirectory()
         if not isfolder(basePath) then
             makefolder(basePath)
         end
-        return true
-    end)
-    return success
-end
-
--- 读取换服时间设置
-local function readHuanfuTime()
-    if not fileSystemAvailable then return 3 end -- 默认3秒
-    
-    if isfile(huanfuTimeFile) then
-        local success, time = pcall(function()
-            return tonumber(readfile(huanfuTimeFile)) or 3
-        end)
-        return success and time or 3
-    end
-    return 3
-end
-
--- 写入换服时间设置
-local function writeHuanfuTime(time)
-    if not fileSystemAvailable then return false end
-    
-    local success = pcall(function()
-        writefile(huanfuTimeFile, tostring(time))
         return true
     end)
     return success
@@ -319,9 +258,6 @@ local function setupDataStorage()
         -- 确保目录存在
         ensureDirectory()
         
-        -- 读取换服时间设置
-        huanfu = readHuanfuTime()
-        
         -- 服务器进入次数文件路径
         if not isfile(serverCountFile) then
             writefile(serverCountFile, "1")
@@ -464,7 +400,7 @@ ScreenGui.ResetOnSpawn = false
 
 -- 创建主容器
 local mainContainer = Instance.new("Frame")
-mainContainer.Size = UDim2.new(0, 240, 0, 250) -- 增加高度以容纳新按钮
+mainContainer.Size = UDim2.new(0, 240, 0, 220)
 mainContainer.Position = UDim2.new(1, -250, 0, 10)
 mainContainer.AnchorPoint = Vector2.new(0, 0)
 mainContainer.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
@@ -626,41 +562,10 @@ visitedLabel.TextXAlignment = Enum.TextXAlignment.Left
 visitedLabel.TextYAlignment = Enum.TextYAlignment.Center
 visitedLabel.Parent = visitedFrame
 
--- 换服时间显示
-local huanfuFrame = Instance.new("Frame")
-huanfuFrame.Size = UDim2.new(1, -10, 0, 25)
-huanfuFrame.Position = UDim2.new(0, 5, 0, 130)
-huanfuFrame.BackgroundTransparency = 1
-huanfuFrame.Parent = mainContainer
-
-local huanfuIcon = Instance.new("TextLabel")
-huanfuIcon.Size = UDim2.new(0, 25, 1, 0)
-huanfuIcon.Position = UDim2.new(0, 0, 0, 0)
-huanfuIcon.BackgroundTransparency = 1
-huanfuIcon.TextColor3 = Color3.fromRGB(100, 200, 255)
-huanfuIcon.Font = Enum.Font.GothamBold
-huanfuIcon.TextSize = 16
-huanfuIcon.Text = "⏰"
-huanfuIcon.TextXAlignment = Enum.TextXAlignment.Center
-huanfuIcon.TextYAlignment = Enum.TextYAlignment.Center
-huanfuIcon.Parent = huanfuFrame
-
-local huanfuLabel = Instance.new("TextLabel")
-huanfuLabel.Size = UDim2.new(1, -30, 1, 0)
-huanfuLabel.Position = UDim2.new(0, 30, 0, 0)
-huanfuLabel.BackgroundTransparency = 1
-huanfuLabel.TextColor3 = Color3.new(1, 1, 1)
-huanfuLabel.Font = Enum.Font.Gotham
-huanfuLabel.TextSize = 14
-huanfuLabel.Text = "换服时间: " .. huanfu .. "秒"
-huanfuLabel.TextXAlignment = Enum.TextXAlignment.Left
-huanfuLabel.TextYAlignment = Enum.TextYAlignment.Center
-huanfuLabel.Parent = huanfuFrame
-
 -- 自动W键控制按钮
 local wKeyButton = Instance.new("TextButton")
 wKeyButton.Size = UDim2.new(0.9, 0, 0, 25)
-wKeyButton.Position = UDim2.new(0.05, 0, 0, 155)
+wKeyButton.Position = UDim2.new(0.05, 0, 0, 130)
 wKeyButton.BackgroundColor3 = Color3.fromRGB(60, 150, 200)
 wKeyButton.BackgroundTransparency = 0.2
 wKeyButton.TextColor3 = Color3.new(1, 1, 1)
@@ -681,7 +586,7 @@ wKeyButtonStroke.Parent = wKeyButton
 -- 黑名单控制按钮
 local blacklistButton = Instance.new("TextButton")
 blacklistButton.Size = UDim2.new(0.9, 0, 0, 25)
-blacklistButton.Position = UDim2.new(0.05, 0, 0, 185)
+blacklistButton.Position = UDim2.new(0.05, 0, 0, 160)
 blacklistButton.BackgroundColor3 = blacklistEnabled and Color3.fromRGB(60, 200, 60) or Color3.fromRGB(200, 60, 60)
 blacklistButton.BackgroundTransparency = 0.2
 blacklistButton.TextColor3 = Color3.new(1, 1, 1)
@@ -702,7 +607,7 @@ blacklistButtonStroke.Parent = blacklistButton
 -- 清除服务器记录按钮
 local clearButton = Instance.new("TextButton")
 clearButton.Size = UDim2.new(0.9, 0, 0, 25)
-clearButton.Position = UDim2.new(0.05, 0, 0, 215)
+clearButton.Position = UDim2.new(0.05, 0, 0, 190)
 clearButton.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
 clearButton.BackgroundTransparency = 0.2
 clearButton.TextColor3 = Color3.new(1, 1, 1)
@@ -723,7 +628,7 @@ clearButtonStroke.Parent = clearButton
 -- 显示执行次数的标签
 local countLabel = Instance.new("TextLabel")
 countLabel.Size = UDim2.new(1, -10, 0, 15)
-countLabel.Position = UDim2.new(0, 5, 0, 243)
+countLabel.Position = UDim2.new(0, 5, 0, 218)
 countLabel.BackgroundTransparency = 1
 countLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
 countLabel.Font = Enum.Font.Gotham
@@ -751,11 +656,6 @@ local function updateVisitedServersDisplay()
         end
     end
     visitedLabel.Text = "已访问服务器: " .. count
-end
-
--- 更新换服时间显示
-local function updateHuanfuDisplay()
-    huanfuLabel.Text = "换服时间: " .. huanfu .. "秒"
 end
 
 -- 更新计数显示
@@ -840,7 +740,7 @@ clearButton.MouseButton1Click:Connect(function()
     -- 显示操作结果
     local resultLabel = Instance.new("TextLabel")
     resultLabel.Size = UDim2.new(1, -10, 0, 15)
-    resultLabel.Position = UDim2.new(0, 5, 0, 243)
+    resultLabel.Position = UDim2.new(0, 5, 0, 218)
     resultLabel.BackgroundTransparency = 1
     resultLabel.Font = Enum.Font.Gotham
     resultLabel.TextSize = 10
@@ -978,94 +878,176 @@ end
 local qtid = getFistsGUID()
 
 -- 战斗主循环
-local combatConnection
-combatConnection = RunService.Heartbeat:Connect(function()
-    if not scriptEnabled then return end
-    
-    pcall(function()
-        local character = LocalPlayer.Character
-        if not character then return end
+local function startCombatLoop()
+    local combatConnection = RunService.Heartbeat:Connect(function()
+        if not scriptEnabled then return end
         
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
-        local rootPart = character:FindFirstChild("HumanoidRootPart")
-        if not humanoid or not rootPart or humanoid.Health <= 0 then return end
+        pcall(function()
+            local character = LocalPlayer.Character
+            if not character then return end
+            
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            local rootPart = character:FindFirstChild("HumanoidRootPart")
+            if not humanoid or not rootPart or humanoid.Health <= 0 then return end
 
-        -- 自动穿甲
-        if autojia then
-            Signal.InvokeServer("attemptPurchase", jiahit)
-            for i, v in next, itemModule.inventory.items do
-                if v.name == jiahit then
-                    local light = v.guid
-                    local armor = LocalPlayer:GetAttribute('armor')
-                    if armor == nil or armor <= 0 then
-                        Signal.FireServer("equip", light)
-                        Signal.FireServer("useConsumable", light)
-                        Signal.FireServer("removeItem", light)
-                        break
-                    end
-                end
-            end
-        end
-
-        -- 杀戮光环
-        if autokill and qtid then
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer and player.Character then
-                    local targetChar = player.Character
-                    local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
-                    local targetHumanoid = targetChar:FindFirstChildOfClass("Humanoid")
-                    
-                    if targetHRP and targetHumanoid and targetHumanoid.Health > 0 then
-                        local distance = (rootPart.Position - targetHRP.Position).Magnitude
-                        
-                        if distance <= 40 then
-                            local uid = player.UserId
-                            
-                            Signal.FireServer("equip", qtid)
-                            Signal.FireServer("meleeItemHit", "player", { 
-                                hitPlayerId = uid, 
-                                meleeType = hitMOD 
-                            })
-                            
+            -- 自动穿甲
+            if autojia then
+                Signal.InvokeServer("attemptPurchase", jiahit)
+                for i, v in next, itemModule.inventory.items do
+                    if v.name == jiahit then
+                        local light = v.guid
+                        local armor = LocalPlayer:GetAttribute('armor')
+                        if armor == nil or armor <= 0 then
+                            Signal.FireServer("equip", light)
+                            Signal.FireServer("useConsumable", light)
+                            Signal.FireServer("removeItem", light)
                             break
                         end
                     end
                 end
             end
-        end
 
-        -- 踩踏光环
-        if autostomp then
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer and player.Character then
-                    local targetChar = player.Character
-                    local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
-                    local targetHumanoid = targetChar:FindFirstChildOfClass("Humanoid")
-                    
-                    if targetHRP and targetHumanoid and targetHumanoid.Health < 20 then
-                        local distance = (rootPart.Position - targetHRP.Position).Magnitude
+            -- 杀戮光环
+            if autokill and qtid then
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character then
+                        local targetChar = player.Character
+                        local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
+                        local targetHumanoid = targetChar:FindFirstChildOfClass("Humanoid")
                         
-                        if distance <= 40 then
-                            Signal.FireServer("stomp", player)
-                            break
+                        if targetHRP and targetHumanoid and targetHumanoid.Health > 0 then
+                            local distance = (rootPart.Position - targetHRP.Position).Magnitude
+                            
+                            if distance <= 40 then
+                                local uid = player.UserId
+                                
+                                Signal.FireServer("equip", qtid)
+                                Signal.FireServer("meleeItemHit", "player", { 
+                                    hitPlayerId = uid, 
+                                    meleeType = hitMOD 
+                                })
+                                
+                                break
+                            end
                         end
                     end
                 end
             end
-        end
+
+            -- 踩踏光环
+            if autostomp then
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character then
+                        local targetChar = player.Character
+                        local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
+                        local targetHumanoid = targetChar:FindFirstChildOfClass("Humanoid")
+                        
+                        if targetHRP and targetHumanoid and targetHumanoid.Health < 20 then
+                            local distance = (rootPart.Position - targetHRP.Position).Magnitude
+                            
+                            if distance <= 40 then
+                                Signal.FireServer("stomp", player)
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end)
     end)
-end)
-
--- 监听角色重生
-local function onCharacterAdded(character)
-    character:WaitForChild("Humanoid")
-    character:WaitForChild("HumanoidRootPart")
-    qtid = getFistsGUID()
-    autoSellOnce() -- 角色重生时自动售卖
+    
+    table.insert(allConnections, combatConnection)
+    return combatConnection
 end
 
 -- ========================
--- 物品收集与服务器跳转
+-- 服务器跳转功能
+-- ========================
+local function TPServer()
+    print("🚀 正在切换到人数较少的服务器...")
+    
+    local success, servers = pcall(function()
+        local response = game:HttpGet("https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?limit=100")
+        return HttpService:JSONDecode(response)
+    end)
+    
+    if not success then
+        task.wait(1)
+        TPServer()
+        return
+    end
+    
+    local availableServers = {}
+    local currentJobId = game.JobId
+    
+    if servers and servers.data then
+        for _, server in ipairs(servers.data) do
+            -- 排除已访问的服务器和当前服务器
+            if server.playing < server.maxPlayers and server.id ~= currentJobId and not (visitedServers and visitedServers[server.id]) then
+                table.insert(availableServers, {
+                    id = server.id,
+                    players = server.playing,
+                    maxPlayers = server.maxPlayers
+                })
+            end
+        end
+    end
+    
+    if #availableServers > 0 then
+        table.sort(availableServers, function(a, b)
+            return a.players < b.players
+        end)
+        
+        local bestServers = {}
+        local quarterIndex = math.max(1, math.floor(#availableServers * 0.25))
+        
+        for i = 1, quarterIndex do
+            table.insert(bestServers, availableServers[i].id)
+        end
+        
+        if #bestServers > 0 then
+            local selectedServer = bestServers[math.random(1, #bestServers)]
+            print("🎯 选择最佳服务器: " .. selectedServer)
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, selectedServer)
+        else
+            local randomServer = availableServers[math.random(1, #availableServers)].id
+            print("🎲 随机选择服务器: " .. randomServer)
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, randomServer)
+        end
+    else
+        -- 如果没有可用的新服务器，随机选择一个已访问的服务器
+        local visitedServerIds = {}
+        if visitedServers then
+            for serverId in pairs(visitedServers) do
+                if serverId ~= currentJobId then
+                    table.insert(visitedServerIds, serverId)
+                end
+            end
+        end
+        
+        if #visitedServerIds > 0 then
+            local randomVisitedServer = visitedServerIds[math.random(1, #visitedServerIds)]
+            print("🔁 切换到已访问服务器: " .. randomVisitedServer)
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, randomVisitedServer)
+        else
+            print("⏳ 未找到可用服务器，1秒后重试...")
+            task.wait(1)
+            TPServer()
+        end
+    end
+end
+
+-- ========================
+-- 强制服务器切换功能
+-- ========================
+local function forceServerSwitch()
+    print("⏰ 2.5秒时间到，强制切换到人数较少服务器...")
+    stopAllScripts()
+    TPServer()
+end
+
+-- ========================
+-- 物品收集与检测功能
 -- ========================
 local forbiddenZoneCenter = Vector3.new(352.884155, 13.0287256, -1353.05396)
 local forbiddenRadius = 80
@@ -1126,80 +1108,6 @@ local function incrementMoneyPrinterDetection()
     if saveMoneyPrinterCount(moneyPrinterCount) then
         updateMoneyPrinterDisplay()
         print("💰 检测到印钞机! 总印钞机检测次数: " .. moneyPrinterCount)
-    end
-end
-
--- 服务器跳转功能
-local function TPServer()
-    print("🔄 正在寻找新服务器...")
-    
-    local success, servers = pcall(function()
-        local response = game:HttpGet("https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?limit=100")
-        return HttpService:JSONDecode(response)
-    end)
-    
-    if not success then
-        task.wait(1)
-        TPServer()
-        return
-    end
-    
-    local availableServers = {}
-    
-    if servers and servers.data then
-        for _, server in ipairs(servers.data) do
-            -- 排除已访问的服务器和当前服务器
-            if server.playing < server.maxPlayers and server.id ~= currentJobId and not (visitedServers and visitedServers[server.id]) then
-                table.insert(availableServers, {
-                    id = server.id,
-                    players = server.playing,
-                    maxPlayers = server.maxPlayers
-                })
-            end
-        end
-    end
-    
-    if #availableServers > 0 then
-        table.sort(availableServers, function(a, b)
-            return a.players < b.players
-        end)
-        
-        local bestServers = {}
-        local quarterIndex = math.max(1, math.floor(#availableServers * 0.25))
-        
-        for i = 1, quarterIndex do
-            table.insert(bestServers, availableServers[i].id)
-        end
-        
-        if #bestServers > 0 then
-            local selectedServer = bestServers[math.random(1, #bestServers)]
-            print("🚀 正在跳转到服务器: " .. selectedServer)
-            TeleportService:TeleportToPlaceInstance(game.PlaceId, selectedServer)
-        else
-            local randomServer = availableServers[math.random(1, #availableServers)].id
-            print("🚀 正在跳转到随机服务器: " .. randomServer)
-            TeleportService:TeleportToPlaceInstance(game.PlaceId, randomServer)
-        end
-    else
-        -- 如果没有可用的新服务器，随机选择一个已访问的服务器
-        local visitedServerIds = {}
-        if visitedServers then
-            for serverId in pairs(visitedServers) do
-                if serverId ~= currentJobId then
-                    table.insert(visitedServerIds, serverId)
-                end
-            end
-        end
-        
-        if #visitedServerIds > 0 then
-            local randomVisitedServer = visitedServerIds[math.random(1, #visitedServerIds)]
-            print("🚀 正在跳转到已访问服务器: " .. randomVisitedServer)
-            TeleportService:TeleportToPlaceInstance(game.PlaceId, randomVisitedServer)
-        else
-            print("⏳ 未找到可用服务器，1秒后重试...")
-            task.wait(0.5)
-            TPServer()
-        end
     end
 end
 
@@ -1286,6 +1194,11 @@ local function PickItem(item, prompt)
     
     local connection
     connection = RunService.Heartbeat:Connect(function()
+        if not scriptEnabled then
+            if connection then connection:Disconnect() end
+            return
+        end
+        
         if not item or not item.Parent then
             itemCollected = true
             if connection then connection:Disconnect() end
@@ -1306,13 +1219,13 @@ local function PickItem(item, prompt)
     
     repeat 
         task.wait(0.1) 
-    until itemCollected or not item or not item.Parent or tick() - startTime >= timeout
+    until itemCollected or not item or not item.Parent or tick() - startTime >= timeout or not scriptEnabled
     
     if connection then
         connection:Disconnect()
     end
     
-    if shouldSwitchServer then
+    if shouldSwitchServer and scriptEnabled then
         TPServer()
     end
     
@@ -1321,6 +1234,9 @@ end
 
 -- 自动按E功能
 local function autoPressE()
+    local coro = coroutine.running()
+    table.insert(allCoroutines, coro)
+    
     while scriptEnabled do
         VirtualInputManager:SendKeyEvent(true, "E", false, game)
         task.wait(0.01)
@@ -1331,6 +1247,9 @@ end
 
 -- 主循环
 local function mainLoop()
+    local coro = coroutine.running()
+    table.insert(allCoroutines, coro)
+    
     while scriptEnabled do
         local character = LocalPlayer.Character
         if not character then
@@ -1357,36 +1276,56 @@ local function mainLoop()
 end
 
 -- ========================
--- 脚本主启动函数
+-- 人物加载检测和脚本启动
 -- ========================
-local function startScript()
-    print("🎉 BEN Auto Script 开始启动...")
+local function onCharacterAdded(character)
+    print("🎮 人物已加载，等待角色准备完成...")
     
-    -- 等待人物加载完成
-    local character = waitForCharacterLoad()
+    -- 等待角色完全加载
+    character:WaitForChild("Humanoid")
+    character:WaitForChild("HumanoidRootPart")
     
-    -- 启用脚本执行
+    -- 重置脚本状态
+    stopAllScripts()
     scriptEnabled = true
+    scriptStartTime = os.clock()
     
-    -- 启动所有功能协程
-    trackCoroutine(autoWKeyLoop, "auto_w_key")
-    trackCoroutine(autoPressE, "auto_press_e")
-    trackCoroutine(mainLoop, "main_loop")
+    print("✅ 角色准备完成，启动脚本功能...")
     
-    -- 安排自定义时间后强制换服
-    scheduleForceServerSwitch()
+    -- 更新拳头GUID
+    qtid = getFistsGUID()
     
-    print("✅ 脚本已完全加载并开始执行!")
-    print("📁 数据路径: " .. basePath)
-    print("🔢 当前执行次数: " .. readExecutionCount())
-    print("💰 当前印钞机检测次数: " .. moneyPrinterCount)
-    print("⚡ 自动W键功能: " .. (autoWEnabled and "已启用" or "已禁用"))
-    print("🚫 黑名单功能: " .. (blacklistEnabled and "已启用" or "已禁用"))
-    print("⏰ 换服时间设置为: " .. huanfu .. "秒")
-    print("⏰ " .. huanfu .. "秒后将强制更换服务器")
+    -- 启动自动售卖
+    autoSellOnce()
+    
+    -- 启动自动W键
+    coroutine.wrap(autoWKeyLoop)()
+    
+    -- 启动自动按E
+    coroutine.wrap(autoPressE)()
+    
+    -- 启动战斗循环
+    startCombatLoop()
+    
+    -- 启动主循环
+    coroutine.wrap(mainLoop)()
+    
+    -- 启动2.5秒强制换服计时器
+    coroutine.wrap(function()
+        local startTime = os.clock()
+        while scriptEnabled and (os.clock() - startTime) < forceServerSwitchTime do
+            task.wait(0.1)
+        end
+        
+        if scriptEnabled then
+            forceServerSwitch()
+        end
+    end)()
+    
+    print("⏰ 2.5秒强制换服计时器已启动")
 end
 
--- 初始化角色监听
+-- 初始角色检测
 if LocalPlayer.Character then
     onCharacterAdded(LocalPlayer.Character)
 else
@@ -1397,7 +1336,11 @@ end
 updateVisitedServersDisplay()
 updateCountDisplay()
 updateBlacklistButton()
-updateHuanfuDisplay()
 
--- 启动脚本
-startScript()
+print("🎉 BEN Auto Script 已完全加载！")
+print("📁 数据路径: " .. basePath)
+print("🔢 当前执行次数: " .. readExecutionCount())
+print("💰 当前印钞机检测次数: " .. moneyPrinterCount)
+print("⚡ 自动W键功能: " .. (autoWEnabled and "已启用" or "已禁用"))
+print("🚫 黑名单功能: " .. (blacklistEnabled and "已启用" or "已禁用"))
+print("⏰ 2.5秒强制换服功能: 已启用")
